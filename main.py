@@ -325,9 +325,6 @@ def main():
         wgups.load_distance_data('distance_data.csv')
         print("Data loaded successfully!")
         
-        # Uncomment the next line to see debug information
-        # wgups.print_distance_debug()
-        
         wgups.optimize_delivery()
         print("Routes optimized successfully!")
         
@@ -343,6 +340,7 @@ def main():
         print("4. Exit")
         
         choice = input("Enter your choice (1-4): ")
+        # ... rest of the code remains the same ...
         
         if choice == "1":
             try:
