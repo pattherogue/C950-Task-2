@@ -1,4 +1,4 @@
-# Student ID: #000000000  # Replace with your actual student ID
+# Student ID: #012249526
 # WGUPS Package Delivery Implementation
 # This program implements a package delivery management system using hash tables
 # and nearest neighbor algorithm for route optimization.
@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import csv
 
 class Package:
+    """Class representing a delivery package with all its attributes and status"""
     def __init__(self, package_id, address, city, state, zip_code, deadline, weight, notes=""):
         self.package_id = int(package_id)
         self.address = address.strip()
@@ -25,6 +26,7 @@ class Package:
         return f"Package {self.package_id}: {self.address}, {self.city}, {self.state} {self.zip_code}"
 
     def get_status(self, current_time=None):
+        """Returns the status of the package at a given time"""
         if current_time is None:
             return self.status
             
@@ -38,14 +40,17 @@ class Package:
             return "delivered"
 
 class HashTable:
+    """Custom hash table implementation for package storage and retrieval"""
     def __init__(self, capacity=40):
         self.size = capacity
         self.table = [[] for _ in range(capacity)]
 
     def _hash(self, key):
+        """Simple hash function using modulo"""
         return key % self.size
 
     def insert(self, key, item):
+        """Insert or update an item in the hash table"""
         bucket = self._hash(key)
         for i, (k, v) in enumerate(self.table[bucket]):
             if k == key:
@@ -54,6 +59,7 @@ class HashTable:
         self.table[bucket].append((key, item))
 
     def lookup(self, key):
+        """Look up an item by key"""
         bucket = self._hash(key)
         for k, v in self.table[bucket]:
             if k == key:
@@ -61,6 +67,7 @@ class HashTable:
         return None
 
     def get_all(self):
+        """Get all items in the hash table"""
         all_items = []
         for bucket in self.table:
             for _, item in bucket:
@@ -68,16 +75,18 @@ class HashTable:
         return sorted(all_items, key=lambda x: x.package_id)
 
 class Truck:
+    """Class representing a delivery truck with its attributes and delivery capabilities"""
     def __init__(self, id, capacity=16, speed=18):
         self.id = id
         self.capacity = capacity
         self.speed = speed  # mph
         self.packages = []
         self.mileage = 0.0
-        self.current_location = "HUB"
+        self.current_location = "4001 South 700 East"  # WGU address
         self.time = datetime.strptime("8:00 AM", "%I:%M %p")
 
     def load_package(self, package):
+        """Load a package onto the truck"""
         if len(self.packages) < self.capacity:
             self.packages.append(package)
             package.truck = self.id
@@ -86,6 +95,7 @@ class Truck:
         return False
 
     def deliver_package(self, package, distance):
+        """Deliver a package and update truck status"""
         travel_time = distance / self.speed
         self.time += timedelta(hours=travel_time)
         self.mileage += float(distance)
@@ -94,18 +104,51 @@ class Truck:
         self.current_location = package.address
         self.packages.remove(package)
 
+
+
 class DeliverySystem:
+    """Main class handling the delivery system operations"""
     def __init__(self):
         self.packages = HashTable()
         self.distances = {}
         self.addresses = []
+        self.address_mapping = {}
         self.trucks = [Truck(1), Truck(2), Truck(3)]
 
+    def _clean_address(self, address):
+        """Clean address format to match between package and distance data"""
+        if not address:
+            return ""
+            
+        # Handle HUB special case
+        if address.upper() == "HUB":
+            return "4001 South 700 East"
+            
+        # Remove any zip code in parentheses
+        address = address.split('(')[0].strip()
+        
+        # Remove suite/apt numbers
+        if '#' in address:
+            address = address.split('#')[0].strip()
+            
+        # Standardize street abbreviations
+        address = (address.replace(' St ', ' Street ')
+                         .replace(' Ave ', ' Avenue ')
+                         .replace(' Blvd ', ' Boulevard ')
+                         .replace(' Rd ', ' Road ')
+                         .replace(' S ', ' South ')
+                         .replace(' N ', ' North ')
+                         .replace(' E ', ' East ')
+                         .replace(' W ', ' West '))
+        
+        return address.strip()
+
     def load_package_data(self, filename):
+        """Load package data from CSV file"""
         try:
             with open(filename, 'r', encoding='utf-8-sig') as file:
                 reader = csv.reader(file)
-                package_data = []
+                package_count = 0
                 header_found = False
                 
                 for row in reader:
@@ -131,64 +174,70 @@ class DeliverySystem:
                             row[7]   # Notes
                         )
                         self.packages.insert(package.package_id, package)
-                        package_data.append(row)
+                        package_count += 1
 
-                if not package_data:
-                    raise ValueError("No valid package data found in file")
-
-                print(f"Successfully loaded {len(package_data)} packages.")
+                print(f"Successfully loaded {package_count} packages.")
         except Exception as e:
             print(f"Error loading package data: {e}")
             raise
 
     def load_distance_data(self, filename):
-        """Loads distance data from CSV file."""
+        """Loads distance data from CSV file with specific address handling"""
         try:
             with open(filename, 'r', encoding='utf-8-sig') as file:
                 reader = csv.reader(file)
                 rows = list(reader)
                 
-                # Find the header row with addresses
+                # Find the header row (contains WGU address)
                 header_row_index = None
                 for i, row in enumerate(rows):
-                    if len(row) > 2 and "Western Governors University" in row[2]:  # Check third column
+                    if len(row) > 2 and "Western Governors University" in row[2]:
                         header_row_index = i
                         break
                 
                 if header_row_index is None:
                     raise ValueError("Could not find address header row")
                 
-                # Extract addresses from the header row
+                # Extract addresses and create mappings
                 header_row = rows[header_row_index]
                 self.addresses = []
-                for addr in header_row[2:]:  # Skip first two columns
-                    if addr.strip():
-                        # Extract first line of address for consistency
-                        addr_first_line = addr.split('\n')[0].strip()
-                        self.addresses.append(addr_first_line)
                 
-                # Process distance data starting from the row after header
-                for row in rows[header_row_index + 1:]:
-                    if not row or len(row) < 3:  # Skip empty rows
-                        continue
+                # Process header addresses
+                for addr in header_row[2:]:  # Skip empty columns
+                    if addr.strip():
+                        # Get first line of address (main address line)
+                        main_address = addr.split('\n')[0].strip()
+                        clean_addr = self._clean_address(main_address)
+                        self.addresses.append(clean_addr)
                         
-                    # Get source address (first line only)
-                    from_addr = row[0].split('\n')[0].strip()
-                    if not from_addr or from_addr == "HUB":
+                        # Map both original and clean versions
+                        self.address_mapping[clean_addr] = clean_addr
+                        self.address_mapping[main_address] = clean_addr
+                
+                # Process distance data
+                for row in rows[header_row_index + 1:]:
+                    if not row or len(row) < 3:
                         continue
                     
-                    self.distances[from_addr] = {}
+                    # Get address from first column, clean it
+                    from_addr = row[0].split('\n')[0].strip()
+                    clean_from = self._clean_address(from_addr)
                     
-                    # Process distances
-                    for i, distance in enumerate(row[2:]):  # Skip first two columns
+                    if not clean_from:
+                        continue
+                    
+                    self.distances[clean_from] = {}
+                    
+                    # Store distances
+                    for i, distance in enumerate(row[2:]):
                         if i < len(self.addresses) and distance.strip():
                             try:
                                 dist_value = float(distance.strip())
                                 if dist_value >= 0:
-                                    self.distances[from_addr][self.addresses[i]] = dist_value
+                                    self.distances[clean_from][self.addresses[i]] = dist_value
                             except ValueError:
                                 continue
-
+                
                 print(f"Successfully loaded distances for {len(self.addresses)} locations.")
                 print(f"Number of source addresses: {len(self.distances)}")
                 
@@ -196,53 +245,55 @@ class DeliverySystem:
             print(f"Error loading distance data: {e}")
             raise
 
-
-
-
-
     def get_distance(self, addr1, addr2):
+        """Get the distance between two addresses with improved matching"""
         try:
-            # Clean addresses
-            addr1_clean = ' '.join(addr1.split('\n')).strip()
-            addr2_clean = ' '.join(addr2.split('\n')).strip()
+            # Clean both addresses
+            addr1_clean = self._clean_address(addr1)
+            addr2_clean = self._clean_address(addr2)
             
             # Direct lookup
             if addr1_clean in self.distances and addr2_clean in self.distances[addr1_clean]:
                 return float(self.distances[addr1_clean][addr2_clean])
             elif addr2_clean in self.distances and addr1_clean in self.distances[addr2_clean]:
                 return float(self.distances[addr2_clean][addr1_clean])
-
-            # Try partial matches
-            for src_addr in self.distances:
-                if addr1_clean in src_addr or src_addr in addr1_clean:
-                    for dst_addr in self.distances[src_addr]:
-                        if addr2_clean in dst_addr or dst_addr in addr2_clean:
-                            return float(self.distances[src_addr][dst_addr])
-                            
-            # Try reverse lookup with partial matches
-            for src_addr in self.distances:
-                if addr2_clean in src_addr or src_addr in addr2_clean:
-                    for dst_addr in self.distances[src_addr]:
-                        if addr1_clean in dst_addr or dst_addr in addr1_clean:
-                            return float(self.distances[src_addr][dst_addr])
-
+            
+            # Try looking up using mapped addresses
+            addr1_mapped = self.address_mapping.get(addr1_clean, addr1_clean)
+            addr2_mapped = self.address_mapping.get(addr2_clean, addr2_clean)
+            
+            if addr1_mapped in self.distances and addr2_mapped in self.distances[addr1_mapped]:
+                return float(self.distances[addr1_mapped][addr2_mapped])
+            elif addr2_mapped in self.distances and addr1_mapped in self.distances[addr2_mapped]:
+                return float(self.distances[addr2_mapped][addr1_mapped])
+            
+            # For debugging
+            if addr1 != "4001 South 700 East":  # Reduce noise from hub address
+                print(f"Could not find distance between '{addr1}' and '{addr2}'")
+            
             return float('inf')
+            
         except Exception as e:
             print(f"Error getting distance between {addr1} and {addr2}: {e}")
             return float('inf')
 
     def find_nearest(self, current_location, available_packages):
+        """Find the nearest package from the current location"""
         if not available_packages:
             return None
-        return min(available_packages, key=lambda p: self.get_distance(current_location, p.address))
+        return min(available_packages, 
+                  key=lambda p: self.get_distance(current_location, p.address))
 
     def optimize_delivery(self):
+        """Optimize package delivery routes using the nearest neighbor algorithm"""
+        print("Starting package sorting...")
         packages = self.packages.get_all()
         priority_packages = []
         delayed_packages = []
         truck2_packages = []
         regular_packages = []
 
+        # Sort packages based on constraints
         for package in packages:
             if "Can only be on truck 2" in package.notes:
                 truck2_packages.append(package)
@@ -253,30 +304,76 @@ class DeliverySystem:
             else:
                 regular_packages.append(package)
 
-        truck1_packages = [p for p in priority_packages if p not in truck2_packages][:16]
-        truck2_packages.extend([p for p in priority_packages if p not in truck1_packages])
+        # Handle special delivery requirements
+        linked_packages = {
+            13: [15, 19],
+            15: [13, 19],
+            19: [13, 15]
+        }
+
+        # Ensure linked packages stay together
+        for base_id, linked_ids in linked_packages.items():
+            base_package = self.packages.lookup(base_id)
+            if base_package in priority_packages:
+                for linked_id in linked_ids:
+                    linked_package = self.packages.lookup(linked_id)
+                    if linked_package not in priority_packages:
+                        priority_packages.append(linked_package)
+                        if linked_package in regular_packages:
+                            regular_packages.remove(linked_package)
+
+        print("Distributing packages to trucks...")
+        # Distribute packages among trucks
+        truck1_packages = [p for p in priority_packages if p not in truck2_packages][:12]
+        remaining_priority = [p for p in priority_packages if p not in truck1_packages]
+        truck2_packages.extend(remaining_priority)
+        
+        # Fill remaining space on truck 2
         remaining_space = 16 - len(truck2_packages)
         truck2_packages.extend(regular_packages[:remaining_space])
         
+        # Set delayed truck start time
         self.trucks[2].time = datetime.strptime("9:05 AM", "%I:%M %p")
         truck3_packages = delayed_packages + regular_packages[remaining_space:]
 
+        # Route each truck
         self._route_truck(self.trucks[0], truck1_packages)
         self._route_truck(self.trucks[1], truck2_packages)
         self._route_truck(self.trucks[2], truck3_packages)
 
     def _route_truck(self, truck, packages):
-        for package in packages:
-            truck.load_package(package)
+        """Route a single truck using nearest neighbor algorithm"""
+        print(f"Routing Truck {truck.id} with {len(packages)} packages...")
+        try:
+            # Load packages onto truck
+            for package in packages:
+                if truck.load_package(package):
+                    print(f"Loaded package {package.package_id} onto truck {truck.id}")
+                else:
+                    print(f"Failed to load package {package.package_id} onto truck {truck.id}")
 
-        while truck.packages:
-            next_delivery = self.find_nearest(truck.current_location, truck.packages)
-            if next_delivery:
-                distance = self.get_distance(truck.current_location, next_delivery.address)
-                if distance != float('inf'):
-                    truck.deliver_package(next_delivery, distance)
+            # Deliver packages using nearest neighbor
+            while truck.packages:
+                next_delivery = self.find_nearest(truck.current_location, truck.packages)
+                if next_delivery:
+                    distance = self.get_distance(truck.current_location, next_delivery.address)
+                    if distance != float('inf'):
+                        truck.deliver_package(next_delivery, distance)
+                    else:
+                        print(f"Warning: Could not find distance for package {next_delivery.package_id}")
+                        break
+                else:
+                    print(f"Warning: No next delivery found for truck {truck.id}")
+                    break
+
+            print(f"Truck {truck.id} routing complete.")
+            
+        except Exception as e:
+            print(f"Error routing truck {truck.id}: {e}")
+            raise
 
     def get_package_status(self, package_id, time=None):
+        """Get the status of a package at a specific time"""
         package = self.packages.lookup(package_id)
         if not package:
             return None
@@ -299,102 +396,116 @@ class DeliverySystem:
         }
 
     def get_total_mileage(self):
+        """Calculate total mileage for all trucks"""
         return sum(truck.mileage for truck in self.trucks)
-
-    def print_distance_debug(self):
-        """Debug function to print loaded distance data"""
-        print("\nDistance Data Debug Information:")
-        print(f"Number of source addresses: {len(self.distances)}")
-        print("\nSource addresses:")
-        for addr in self.distances:
-            print(f"- {addr}")
-        print("\nDestination addresses:")
-        for addr in self.addresses:
-            print(f"- {addr}")
-        print("\nSample distances:")
-        for src in list(self.distances.keys())[:3]:
-            print(f"\nFrom {src}:")
-            for dst in list(self.distances[src].keys())[:3]:
-                print(f"  To {dst}: {self.distances[src][dst]}")
-
-def main():
-    wgups = DeliverySystem()
     
-    try:
-        wgups.load_package_data('package_data.csv')
-        wgups.load_distance_data('distance_data.csv')
-        print("Data loaded successfully!")
+def main():
+        """Main execution function for the WGUPS delivery system"""
+        wgups = DeliverySystem()
         
-        wgups.optimize_delivery()
-        print("Routes optimized successfully!")
-        
-    except Exception as e:
-        print(f"Error during initialization: {e}")
-        return
-
-    while True:
-        print("\nWGUPS Package Tracking System")
-        print("1. Check Package Status")
-        print("2. Check All Packages Status")
-        print("3. View Total Mileage")
-        print("4. Exit")
-        
-        choice = input("Enter your choice (1-4): ")
-        # ... rest of the code remains the same ...
-        
-        if choice == "1":
-            try:
-                package_id = int(input("Enter package ID (1-40): "))
-                time_input = input("Enter time (HH:MM AM/PM) or press Enter for current status: ")
-                
-                if time_input:
-                    try:
-                        datetime.strptime(time_input, "%I:%M %p")
-                    except ValueError:
-                        print("Invalid time format. Please use HH:MM AM/PM (e.g., 9:00 AM)")
-                        continue
-
-                status = wgups.get_package_status(package_id, time_input if time_input else None)
-                if status:
-                    print(f"\nPackage {status['id']} Status:")
-                    print(f"Status: {status['status']}")
-                    print(f"Address: {status['address']}")
-                    print(f"Deadline: {status['deadline']}")
-                    print(f"City: {status['city']}")
-                    print(f"Zip: {status['zip']}")
-                    print(f"Weight: {status['weight']} kg")
-                    if status['delivery_time']:
-                        print(f"Delivery Time: {status['delivery_time'].strftime('%I:%M %p')}")
-                else:
-                    print(f"Package {package_id} not found.")
-            except ValueError:
-                print("Please enter a valid package ID.")
-                
-        elif choice == "2":
-            time_input = input("Enter time (HH:MM AM/PM): ")
-            try:
-                datetime.strptime(time_input, "%I:%M %p")
-                print("\nPackage Status Report:")
-                print("-" * 80)
-                for package in wgups.packages.get_all():
-                    status = package.get_status(datetime.strptime(time_input, "%I:%M %p"))
-                    print(f"Package {package.package_id}: {status} - Deadline: {package.deadline}")
-                print("-" * 80)
-            except ValueError:
-                print("Invalid time format. Please use HH:MM AM/PM (e.g., 9:00 AM)")
-                
-        elif choice == "3":
-            total_mileage = wgups.get_total_mileage()
-            print(f"\nTotal mileage for all trucks: {total_mileage:.1f} miles")
-            for truck in wgups.trucks:
-                print(f"Truck {truck.id}: {truck.mileage:.1f} miles")
-                
-        elif choice == "4":
-            print("Thank you for using WGUPS Package Tracking System!")
-            break
+        try:
+            # Initialize the system
+            print("WGUPS Package Delivery System")
+            print("Initializing...")
+            wgups.load_package_data('package_data.csv')
+            wgups.load_distance_data('distance_data.csv')
+            print("Data loaded successfully!")
             
-        else:
-            print("Invalid choice. Please try again.")
+            print("\nStarting route optimization...")
+            wgups.optimize_delivery()
+            print("Routes optimized successfully!")
+            
+            # Main program loop
+            while True:
+                print("\nWGUPS Package Tracking System")
+                print("1. Check Package Status")
+                print("2. Check All Packages Status")
+                print("3. View Total Mileage")
+                print("4. Exit")
+                
+                try:
+                    choice = input("\nEnter your choice (1-4): ").strip()
+                    
+                    if choice == "1":
+                        try:
+                            package_id = int(input("Enter package ID (1-40): "))
+                            if package_id < 1 or package_id > 40:
+                                print("Invalid package ID. Please enter a number between 1 and 40.")
+                                continue
+                                
+                            time_input = input("Enter time (HH:MM AM/PM) or press Enter for current status: ").strip()
+                            
+                            if time_input:
+                                try:
+                                    datetime.strptime(time_input, "%I:%M %p")
+                                except ValueError:
+                                    print("Invalid time format. Please use HH:MM AM/PM (e.g., 9:00 AM)")
+                                    continue
+
+                            status = wgups.get_package_status(package_id, time_input if time_input else None)
+                            if status:
+                                print("\nPackage Status Report")
+                                print("-" * 50)
+                                print(f"Package ID: {status['id']}")
+                                print(f"Delivery Status: {status['status']}")
+                                print(f"Address: {status['address']}")
+                                print(f"City: {status['city']}")
+                                print(f"Zip Code: {status['zip']}")
+                                print(f"Delivery Deadline: {status['deadline']}")
+                                print(f"Package Weight: {status['weight']} kg")
+                                if status['delivery_time']:
+                                    print(f"Delivery Time: {status['delivery_time'].strftime('%I:%M %p')}")
+                                print("-" * 50)
+                            else:
+                                print(f"Package {package_id} not found.")
+                        except ValueError:
+                            print("Please enter a valid package ID number.")
+                        
+                    elif choice == "2":
+                        time_input = input("Enter time (HH:MM AM/PM): ").strip()
+                        try:
+                            query_time = datetime.strptime(time_input, "%I:%M %p")
+                            print("\nAll Packages Status Report")
+                            print("-" * 90)
+                            print(f"Status at {time_input}")
+                            print("-" * 90)
+                            print(f"{'ID':3} | {'Status':10} | {'Address':30} | {'Deadline':10} | {'Weight':6} | {'Delivery Time':12}")
+                            print("-" * 90)
+                            
+                            for package in wgups.packages.get_all():
+                                status = package.get_status(query_time)
+                                delivery_time = package.delivery_time.strftime('%I:%M %p') if package.delivery_time else "Pending"
+                                print(f"{package.package_id:3} | {status:10} | {package.address[:30]:30} | {package.deadline:10} | {package.weight:6} | {delivery_time:12}")
+                            print("-" * 90)
+                        except ValueError:
+                            print("Invalid time format. Please use HH:MM AM/PM (e.g., 9:00 AM)")
+                        
+                    elif choice == "3":
+                        print("\nMileage Report")
+                        print("-" * 40)
+                        total_mileage = wgups.get_total_mileage()
+                        print(f"Total mileage for all trucks: {total_mileage:.1f} miles")
+                        for truck in wgups.trucks:
+                            print(f"Truck {truck.id}: {truck.mileage:.1f} miles")
+                        print("-" * 40)
+                        
+                    elif choice == "4":
+                        print("\nThank you for using WGUPS Package Tracking System!")
+                        break
+                        
+                    else:
+                        print("Invalid choice. Please enter a number between 1 and 4.")
+                        
+                except Exception as e:
+                    print(f"An error occurred: {e}")
+                    print("Please try again.")
+                    
+        except Exception as e:
+            print(f"System initialization error: {e}")
+            import traceback
+            traceback.print_exc()
+            return
 
 if __name__ == "__main__":
     main()
+        
