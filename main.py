@@ -82,7 +82,7 @@ class Truck:
         self.speed = speed  # mph
         self.packages = []
         self.mileage = 0.0
-        self.current_location = "4001 South 700 East"  # WGU address
+        self.current_location = "HUB"  # Changed from hardcoded address to HUB
         self.time = datetime.strptime("8:00 AM", "%I:%M %p")
 
     def load_package(self, package):
@@ -115,33 +115,61 @@ class DeliverySystem:
         self.address_mapping = {}
         self.trucks = [Truck(1), Truck(2), Truck(3)]
 
+
+
     def _clean_address(self, address):
         """Clean address format to match between package and distance data"""
         if not address:
             return ""
             
-        # Handle HUB special case
-        if address.upper() == "HUB":
-            return "4001 South 700 East"
-            
+        # Handle HUB special cases
+        if any(hub_indicator in address.upper() for hub_indicator in 
+            ["WESTERN GOVERNORS UNIVERSITY", "4001 SOUTH 700 EAST", "HUB"]):
+            return "HUB"
+        
+        # If address contains a newline, take the first line that contains a number
+        if '\n' in address:
+            lines = [line.strip() for line in address.split('\n') if line.strip()]
+            # Find first line containing a number
+            for line in lines:
+                if any(char.isdigit() for char in line):
+                    address = line
+                    break
+        
         # Remove any zip code in parentheses
         address = address.split('(')[0].strip()
         
         # Remove suite/apt numbers
         if '#' in address:
             address = address.split('#')[0].strip()
-            
+        
+        # Special case for Valley Central Station
+        if "Valley Central" in address:
+            address = address.replace("Station", "Sta")
+        
         # Standardize street abbreviations
         address = (address.replace(' St ', ' Street ')
-                         .replace(' Ave ', ' Avenue ')
-                         .replace(' Blvd ', ' Boulevard ')
-                         .replace(' Rd ', ' Road ')
-                         .replace(' S ', ' South ')
-                         .replace(' N ', ' North ')
-                         .replace(' E ', ' East ')
-                         .replace(' W ', ' West '))
+                        .replace(' Ave ', ' Avenue ')
+                        .replace(' Blvd ', ' Boulevard ')
+                        .replace(' Rd ', ' Road ')
+                        .replace(' S ', ' South ')
+                        .replace(' N ', ' North ')
+                        .replace(' E ', ' East ')
+                        .replace(' W ', ' West '))
         
-        return address.strip()
+        # Convert multiple spaces to single space and strip
+        address = ' '.join(address.split())
+        
+        # Special case handling for specific addresses
+        special_cases = {
+            "3575 West Valley Central Station bus Loop": "3575 West Valley Central Sta bus Loop",
+            "3575 W Valley Central Station bus Loop": "3575 West Valley Central Sta bus Loop"
+        }
+        
+        return special_cases.get(address, address)
+
+
+
 
     def load_package_data(self, filename):
         """Load package data from CSV file"""
@@ -198,34 +226,36 @@ class DeliverySystem:
                 if header_row_index is None:
                     raise ValueError("Could not find address header row")
                 
-                # Extract addresses and create mappings
+                # Process header addresses
                 header_row = rows[header_row_index]
                 self.addresses = []
                 
-                # Process header addresses
+                # Add explicit hub mappings
+                self.address_mapping["4001 South 700 East"] = "HUB"
+                self.address_mapping["HUB"] = "HUB"
+                self.address_mapping["Western Governors University"] = "HUB"
+                
                 for addr in header_row[2:]:  # Skip empty columns
                     if addr.strip():
-                        # Get first line of address (main address line)
-                        main_address = addr.split('\n')[0].strip()
-                        clean_addr = self._clean_address(main_address)
-                        self.addresses.append(clean_addr)
-                        
-                        # Map both original and clean versions
-                        self.address_mapping[clean_addr] = clean_addr
-                        self.address_mapping[main_address] = clean_addr
+                        clean_addr = self._clean_address(addr)
+                        if clean_addr:
+                            self.addresses.append(clean_addr)
+                            # Map both original and clean versions
+                            self.address_mapping[addr.strip()] = clean_addr
+                            self.address_mapping[clean_addr] = clean_addr
                 
                 # Process distance data
                 for row in rows[header_row_index + 1:]:
                     if not row or len(row) < 3:
                         continue
                     
-                    # Get address from first column, clean it
-                    from_addr = row[0].split('\n')[0].strip()
+                    # Clean the source address
+                    from_addr = row[0].strip()
                     clean_from = self._clean_address(from_addr)
                     
                     if not clean_from:
                         continue
-                    
+                        
                     self.distances[clean_from] = {}
                     
                     # Store distances
@@ -235,16 +265,20 @@ class DeliverySystem:
                                 dist_value = float(distance.strip())
                                 if dist_value >= 0:
                                     self.distances[clean_from][self.addresses[i]] = dist_value
+                                    # Add reverse mapping for symmetrical distances
+                                    if self.addresses[i] not in self.distances:
+                                        self.distances[self.addresses[i]] = {}
+                                    self.distances[self.addresses[i]][clean_from] = dist_value
                             except ValueError:
                                 continue
                 
-                print(f"Successfully loaded distances for {len(self.addresses)} locations.")
+                print(f"\nSuccessfully loaded distances for {len(self.addresses)} locations.")
                 print(f"Number of source addresses: {len(self.distances)}")
                 
         except Exception as e:
             print(f"Error loading distance data: {e}")
             raise
-
+   
     def get_distance(self, addr1, addr2):
         """Get the distance between two addresses with improved matching"""
         try:
@@ -252,30 +286,50 @@ class DeliverySystem:
             addr1_clean = self._clean_address(addr1)
             addr2_clean = self._clean_address(addr2)
             
+            # Debug logging
+            print(f"\nDebug - Distance lookup:")
+            print(f"Original addr1: '{addr1}'")
+            print(f"Cleaned addr1: '{addr1_clean}'")
+            print(f"Original addr2: '{addr2}'")
+            print(f"Cleaned addr2: '{addr2_clean}'")
+            print(f"Available addresses in distance table: {list(self.distances.keys())[:3]}...")  # Show first 3
+            
             # Direct lookup
             if addr1_clean in self.distances and addr2_clean in self.distances[addr1_clean]:
+                print(f"Found direct distance: {self.distances[addr1_clean][addr2_clean]}")
                 return float(self.distances[addr1_clean][addr2_clean])
             elif addr2_clean in self.distances and addr1_clean in self.distances[addr2_clean]:
+                print(f"Found reverse distance: {self.distances[addr2_clean][addr1_clean]}")
                 return float(self.distances[addr2_clean][addr1_clean])
             
             # Try looking up using mapped addresses
             addr1_mapped = self.address_mapping.get(addr1_clean, addr1_clean)
             addr2_mapped = self.address_mapping.get(addr2_clean, addr2_clean)
             
+            print(f"Mapped addr1: '{addr1_mapped}'")
+            print(f"Mapped addr2: '{addr2_mapped}'")
+            
             if addr1_mapped in self.distances and addr2_mapped in self.distances[addr1_mapped]:
+                print(f"Found mapped distance: {self.distances[addr1_mapped][addr2_mapped]}")
                 return float(self.distances[addr1_mapped][addr2_mapped])
             elif addr2_mapped in self.distances and addr1_mapped in self.distances[addr2_mapped]:
+                print(f"Found reverse mapped distance: {self.distances[addr2_mapped][addr1_mapped]}")
                 return float(self.distances[addr2_mapped][addr1_mapped])
             
             # For debugging
             if addr1 != "4001 South 700 East":  # Reduce noise from hub address
-                print(f"Could not find distance between '{addr1}' and '{addr2}'")
+                print(f"Failed to find distance between '{addr1}' and '{addr2}'")
+                print(f"Available mappings: {list(self.address_mapping.items())[:3]}...")  # Show first 3
             
             return float('inf')
-            
+                
         except Exception as e:
             print(f"Error getting distance between {addr1} and {addr2}: {e}")
             return float('inf')
+
+
+
+
 
     def find_nearest(self, current_location, available_packages):
         """Find the nearest package from the current location"""
