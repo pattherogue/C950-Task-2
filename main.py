@@ -21,6 +21,14 @@ class Package:
         self.delivery_time = None
         self.departure_time = None
         self.truck = None
+        self.original_address = address.strip()  # Store original address
+
+    def update_address(self, new_address, new_city, new_zip, update_time):
+        """Updates package address after a specific time"""
+        if self.departure_time and self.departure_time > update_time:
+            self.address = new_address
+            self.city = new_city
+            self.zip_code = new_zip    
 
     def __str__(self):
         return f"Package {self.package_id}: {self.address}, {self.city}, {self.state} {self.zip_code}"
@@ -28,16 +36,27 @@ class Package:
     def get_status(self, current_time=None):
         """Returns the status of the package at a given time"""
         if current_time is None:
-            return self.status
-            
-        if self.departure_time is None:
-            return "at hub"
-        elif current_time < self.departure_time:
-            return "at hub"
-        elif self.delivery_time is None or current_time < self.delivery_time:
-            return "en route"
+            status = self.status
         else:
-            return "delivered"
+            # Update address for package 9 at 10:20 AM
+            if self.package_id == 9:
+                update_time = datetime.strptime("10:20 AM", "%I:%M %p")
+                if current_time >= update_time:
+                    self.update_address("410 S State St", "Salt Lake City", "84111", update_time)
+                else:
+                    # Reset to original address if before 10:20 AM
+                    self.address = self.original_address
+            
+            if self.departure_time is None:
+                status = "at hub"
+            elif current_time < self.departure_time:
+                status = "at hub"
+            elif self.delivery_time is None or current_time < self.delivery_time:
+                status = "en route"
+            else:
+                status = "delivered"
+        
+        return status
 
 class HashTable:
     """Custom hash table implementation for package storage and retrieval"""
@@ -446,7 +465,8 @@ class DeliverySystem:
             'zip': package.zip_code,
             'weight': package.weight,
             'status': status,
-            'delivery_time': package.delivery_time
+            'delivery_time': package.delivery_time,
+            'truck': package.truck  # Added truck number
         }
 
     def get_total_mileage(self):
@@ -507,6 +527,7 @@ def main():
                                 print(f"Zip Code: {status['zip']}")
                                 print(f"Delivery Deadline: {status['deadline']}")
                                 print(f"Package Weight: {status['weight']} kg")
+                                print(f"Assigned Truck: {status['truck']}")  # Added truck display
                                 if status['delivery_time']:
                                     print(f"Delivery Time: {status['delivery_time'].strftime('%I:%M %p')}")
                                 print("-" * 50)
@@ -520,17 +541,17 @@ def main():
                         try:
                             query_time = datetime.strptime(time_input, "%I:%M %p")
                             print("\nAll Packages Status Report")
-                            print("-" * 90)
+                            print("-" * 100)
                             print(f"Status at {time_input}")
-                            print("-" * 90)
+                            print("-" * 100)
                             print(f"{'ID':3} | {'Status':10} | {'Address':30} | {'Deadline':10} | {'Weight':6} | {'Delivery Time':12}")
-                            print("-" * 90)
+                            print("-" * 100)
                             
                             for package in wgups.packages.get_all():
                                 status = package.get_status(query_time)
                                 delivery_time = package.delivery_time.strftime('%I:%M %p') if package.delivery_time else "Pending"
                                 print(f"{package.package_id:3} | {status:10} | {package.address[:30]:30} | {package.deadline:10} | {package.weight:6} | {delivery_time:12}")
-                            print("-" * 90)
+                            print("-" * 100)
                         except ValueError:
                             print("Invalid time format. Please use HH:MM AM/PM (e.g., 9:00 AM)")
                         
