@@ -25,10 +25,9 @@ class Package:
 
     def update_address(self, new_address, new_city, new_zip, update_time):
         """Updates package address after a specific time"""
-        if self.departure_time and self.departure_time > update_time:
-            self.address = new_address
-            self.city = new_city
-            self.zip_code = new_zip    
+        self.address = new_address
+        self.city = new_city
+        self.zip_code = new_zip    
 
     def __str__(self):
         return f"Package {self.package_id}: {self.address}, {self.city}, {self.state} {self.zip_code}"
@@ -42,11 +41,15 @@ class Package:
             if self.package_id == 9:
                 update_time = datetime.strptime("10:20 AM", "%I:%M %p")
                 if current_time >= update_time:
-                    self.update_address("410 S State St", "Salt Lake City", "84111", update_time)
+                    self.address = "410 S State St"
+                    self.city = "Salt Lake City"
+                    self.zip_code = "84111"
                 else:
-                    # Reset to original address if before 10:20 AM
                     self.address = self.original_address
+                    self.city = "Salt Lake City"
+                    self.zip_code = "84103"
             
+            # Determine delivery status
             if self.departure_time is None:
                 status = "at hub"
             elif current_time < self.departure_time:
@@ -540,21 +543,37 @@ def main():
                         time_input = input("Enter time (HH:MM AM/PM): ").strip()
                         try:
                             query_time = datetime.strptime(time_input, "%I:%M %p")
-                            print("\nAll Packages Status Report")
-                            print("-" * 100)
-                            print(f"Status at {time_input}")
-                            print("-" * 100)
-                            print(f"{'ID':3} | {'Status':10} | {'Address':30} | {'Deadline':10} | {'Weight':6} | {'Delivery Time':12}")
-                            print("-" * 100)
                             
+                            # Header
+                            print("\nAll Packages Status Report")
+                            print("-" * 120)
+                            print(f"Status at {time_input}")
+                            print("-" * 120)
+                            
+                            # Fixed format - Added Truck column and using same format for header and data
+                            header_format = "{:<3} | {:<10} | {:<30} | {:<10} | {:<6} | {:<5} | {:<12}"
+                            print(header_format.format("ID", "Status", "Address", "Deadline", "Weight", "Truck", "Delivery Time"))
+                            print("-" * 120)
+                            
+                            # Print package data - Using same format string
                             for package in wgups.packages.get_all():
                                 status = package.get_status(query_time)
                                 delivery_time = package.delivery_time.strftime('%I:%M %p') if package.delivery_time else "Pending"
-                                print(f"{package.package_id:3} | {status:10} | {package.address[:30]:30} | {package.deadline:10} | {package.weight:6} | {delivery_time:12}")
-                            print("-" * 100)
+                                print(header_format.format(
+                                    package.package_id,
+                                    status,
+                                    package.address[:30],
+                                    package.deadline,
+                                    package.weight,
+                                    package.truck if package.truck else "",
+                                    delivery_time
+                                ))
+                            
+                            print("-" * 120)
+                            
                         except ValueError:
                             print("Invalid time format. Please use HH:MM AM/PM (e.g., 9:00 AM)")
-                        
+                            
                     elif choice == "3":
                         print("\nMileage Report")
                         print("-" * 40)
